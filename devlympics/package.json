@@ -1,8 +1,9 @@
 {
   "name": "other-side",
-  "version": "1.4.0",
+  "version": "1.2.0",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node --check server.js && node --check ai/hint-service.js && node --check public/js/game.js && node --check public/js/ai-ui.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
