@@ -36,9 +36,10 @@ chat:["I have been standing here for some time. Nobody asked.","Fun fact: socks 
 function pop(t,x,y){(S.pops=S.pops||[]).push({t:1.1,txt:t,x:x??S.me.x,y:y??S.me.y})}
 /* ===== STATE ===== */
 const $=id=>document.getElementById(id),cv=$('c'),mc=cv.getContext('2d'),buf=document.createElement('canvas');buf.width=W*2;buf.height=H*2;let g=buf.getContext('2d');
-let role,room,net,started=false,fb=false,S,keys={},muted=false,lastT=0;
+let role,room,net,started=false,fb=false,S,keys={},muted=false,lastT=0,playerName='',partnerName='Partner',closeConnection=null,signalTimer;
+const partnerCv=$('partnerMap'),pc=partnerCv.getContext('2d');
 const reduce=matchMedia('(prefers-reduced-motion:reduce)').matches;
-function fresh(){return{stage:1,gates:0,order:[2,0,1],routes:[1,2,0],beam:-1,dial:-1,lit:0,phase:0,anchors:{},gateOpen:false,hold:0,checkpoint:60,t0:performance.now(),trust:CFG.startTrust,falls:{E:0,N:0},pings:0,emotes:0,plank:'floor',plankX:HUMAN.plankX,bridgeT:0,sw:false,gateT:0,done:{},found:{},glow:[0,0,0],
+function fresh(){return{failed:false,stage:1,gates:0,order:[2,0,1],routes:[1,2,0],beam:-1,dial:-1,lit:0,phase:0,anchors:{},gateOpen:false,hold:0,checkpoint:60,t0:performance.now(),trust:CFG.startTrust,falls:{E:0,N:0},pings:0,emotes:0,plank:'floor',plankX:HUMAN.plankX,bridgeT:0,sw:false,gateT:0,done:{},found:{},glow:[0,0,0],
  me:{x:role=='E'?60:60,y:360,vx:0,vy:0,f:1,gr:false,fall:0,lastE:0},ot:{x:60,y:360,tx:60,ty:360,f:1},myPings:CFG.pingMax,pingAcc:0,pl:[],em:[],parts:[],shake:0,nag:0,emoCd:0,lastProg:performance.now(),idle:0,crossed:false,over:false,ended:0}}
 /* ===== AUDIO ===== */
 let ac;function beep(f,d=.12,type='sine',sl=0,v=.12,dl=0){if(muted)return;try{ac=ac||new AudioContext();const t=ac.currentTime+dl,o=ac.createOscillator(),gn=ac.createGain();o.type=type;o.frequency.setValueAtTime(f,t);if(sl)o.frequency.exponentialRampToValueAtTime(Math.max(30,f+sl),t+d);gn.gain.setValueAtTime(v,t);gn.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(gn).connect(ac.destination);o.start(t);o.stop(t+d)}catch(e){}}
@@ -60,35 +61,84 @@ SFX.oyee=()=>{if(muted)return;try{ac=ac||new AudioContext();if(ac.state=='suspen
 function toggleMute(){muted=!muted;$('mute').textContent=muted?'🔇':'🔊'}
 /* ===== NETWORK ===== */
 function status(s){$('status').textContent=s}
+function cleanName(v){return String(v||'').replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,20)}
+function remember(k,v){try{sessionStorage.setItem(k,v)}catch{}}
+function recall(k){try{return sessionStorage.getItem(k)||''}catch{return ''}}
+function selectLevel(){joinReturnFocus=document.activeElement;$('joinSheet').hidden=false;status('Enter your name, pick a role, and wait for your other sock.');$('playerName').focus()}
+let joinReturnFocus;
+function closeJoin(){$('joinSheet').hidden=true;(joinReturnFocus||$('level1')).focus()}
+function showMapHelp(){selectLevel();status('Share one room code. Pick opposite roles. A/D move, Space jumps, E uses things, Q shouts OYEE! Clear all three gates together.')}
+function toggleWorldLayout(){const p=document.querySelector('.play-layout'),large=p.classList.toggle('expanded');$('layoutToggle').textContent=large?'Inset view ↙':'Two big views ↔'}
+addEventListener('keydown',e=>{if($('joinSheet').hidden||$('menu').style.display==='none')return;if(e.key==='Escape'){closeJoin();return}if(e.key==='Tab'){const items=[...$('joinSheet').querySelectorAll('button,input')].filter(x=>!x.disabled),first=items[0],last=items[items.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
+function teamLabels(){
+ $('selfBadge').textContent=(role==='E'?'🧦 ':'🔮 ')+playerName+' · YOU';
+ $('partnerBadge').textContent=(role==='E'?'🔮 ':'🧦 ')+partnerName;
+ $('roomBadge').textContent='ROOM '+room;
+ $('worldLabel').textContent=role==='E'?'🧦 YOUR DIMENSION / EXPLORER':'🔮 YOUR DIMENSION / NAVIGATOR';
+ $('mapTitle').textContent=role==='N'?'📡 EXPLORER RADAR':'🔭 NAVIGATOR PORTHOLE';
+}
 function connect(){
- const useBC=()=>{if(fb)return;fb=true;const c=new BroadcastChannel('otherside-'+room);net={send:o=>c.postMessage(o)};c.onmessage=e=>onMsg(e.data);hello(false);status('Local mode (two tabs). Waiting for partner…')};
+ const useBC=()=>{if(fb)return;fb=true;const c=new BroadcastChannel('otherside-'+room);net={send:o=>c.postMessage(o)};closeConnection=()=>{c.onmessage=null;c.close()};c.onmessage=e=>onMsg(e.data);hello(false);status('Local room '+room+' ready. Waiting for the other role…')};
  if(location.protocol==='file:'||!window.WebSocket)return useBC();
- let ok=false;const ws=new WebSocket((location.protocol=='https:'?'wss://':'ws://')+location.host+'/?room='+room);
- ws.onopen=()=>{ok=true;net={send:o=>ws.readyState==1&&ws.send(JSON.stringify(o))};hello(false);status('Connected. Waiting for partner…')};
- ws.onmessage=e=>onMsg(JSON.parse(e.data));
- ws.onclose=ws.onerror=ev=>{if(!ok)useBC();else if(ev&&ev.code==1013)status('Room full. Two socks is a crowd; three is a sitcom.')};
+ let ok=false;const ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/?room='+room);
+ closeConnection=()=>{ws.onclose=ws.onerror=null;ws.close()};
+ ws.onopen=()=>{ok=true;net={send:o=>ws.readyState===1&&ws.send(JSON.stringify(o))};hello(false);status('Room '+room+' connected. Waiting for the other role…')};
+ ws.onmessage=e=>{try{onMsg(JSON.parse(e.data))}catch{status('A connection message could not be read. Try joining again.')}};
+ ws.onclose=e=>{if(e.code===1013){status('This room already has two players. Try another room code.');return}if(!ok)useBC();else disconnectPartner()};
+ ws.onerror=()=>{if(!ok)useBC()};
 }
-function hello(ack){net&&net.send({t:'hello',role,ack})}
-function ev(e){e.t='ev';e.stage=S.stage;apply(e);net.send(e)}
+function hello(ack){net&&net.send({t:'hello',role,name:playerName,ack})}
+function ev(e){if(!S||S.over)return;e.t='ev';e.stage=S.stage;apply(e);net&&net.send(e);if(S.trust<=0&&!S.over)ev({k:'fail',time:performance.now()-S.t0})}
 function onMsg(m){
- if(m.t=='hello'){
-  if(m.role==role){status('Both picked '+(role=='E'?'Explorer':'Navigator')+'. Two left socks make no pair. One of you, switch!');return}
+ if(m.t==='hello'){
+  if(m.role===role){status('Both players chose '+(role==='E'?'Explorer':'Navigator')+'. Choose opposite roles to start.');return}
+  partnerName=cleanName(m.name)||'Partner';
   if(!m.ack)hello(true);
-  startGame();
- }else if(m.t=='bye'){status('Partner left. Waiting…');started=false;$('game').style.display='none';$('result').style.display='none';$('menu').style.display='flex'}
+  if(!started)startGame();else teamLabels();
+ }else if(m.t==='bye'){if(started)disconnectPartner();else status('The other player is changing roles or reconnecting. Waiting in room '+room+'…')}
  else if(!started||!S)return;
- else if(m.t=='pos'&&m.stage===S.stage){S.ot.tx=m.x;S.ot.ty=m.y;S.ot.f=m.f}
- else if(m.t=='ev')apply(m);
- else if(m.t=='restart')startGame(true);
+ else if(m.t==='pos'&&m.stage===S.stage){S.ot.tx=m.x;S.ot.ty=m.y;S.ot.f=m.f}
+ else if(m.t==='ev')apply(m);
+ else if(m.t==='restart')startGame();
 }
-function join(r){role=r;room=($('room').value||'ABCD').toUpperCase();$('room').value=room;status('Connecting…');net=null;fb=false;connect()}
-function copyLink(){const u=location.origin==='null'||location.protocol==='file:'?location.href.split('?')[0]+'?room='+$('room').value:location.origin+location.pathname+'?room='+$('room').value;navigator.clipboard&&navigator.clipboard.writeText(u);status('Invite link copied: '+u)}
-function playAgain(){net.send({t:'restart'});startGame(true)}
+function disconnectPartner(){
+ $('failure').hidden=true;started=false;keys={};clearInterval(sayTimer);$('game').style.display='none';$('result').style.display='none';$('menu').style.display='block';
+ $('joinSheet').hidden=false;status(partnerName+' left the room. Choose a role again to start a new run together.');
+ net=null;if(closeConnection)closeConnection();closeConnection=null;
+}
+function join(r){
+ const name=cleanName($('playerName').value);if(!name){status('Add your name first so your partner knows who is on the other side.');$('playerName').focus();return}
+ const code=$('room').value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
+ if(code.length!==4){status('Use a four-letter or four-digit room code.');$('room').focus();return}
+ const reuse=!!(closeConnection&&net&&!started&&room===code);
+ if(closeConnection&&!reuse){net&&net.send({t:'bye'});closeConnection();closeConnection=null}
+ playerName=name;remember('otherside-name',name);role=r;room=code;$('room').value=room;partnerName='Partner';
+ $('roleE').classList.toggle('chosen',r==='E');$('roleN').classList.toggle('chosen',r==='N');
+ status('Joining room '+room+' as '+(r==='E'?'Explorer':'Navigator')+'…');if(reuse){hello(false);return}net=null;fb=false;connect();
+}
+async function copyLink(){
+ const code=$('room').value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
+ if(code.length!==4){status('Enter a four-character room code before sharing.');return}
+ const u=location.href.split('?')[0].split('#')[0]+'?room='+encodeURIComponent(code);
+ try{if(!navigator.clipboard)throw Error('clipboard');await navigator.clipboard.writeText(u);status('Invite copied. Ask your partner to enter their name and choose the other role.')}catch{status('Clipboard unavailable. Share room '+code+' and ask your partner to open the game.');}
+}
+function playAgain(){net&&net.send({t:'restart'});startGame()}
+function leaveGame(){
+ if(document.fullscreenElement)document.exitFullscreen().catch(()=>{});
+ net&&net.send({t:'bye'});if(closeConnection)closeConnection();closeConnection=null;net=null;started=false;keys={};$('failure').hidden=true;
+ clearInterval(sayTimer);$('result').style.display='none';$('game').style.display='none';$('menu').style.display='block';loadCompletion();status('Back at adventures. Pick a role when you are ready for another run.');
+}
+async function fullscreenGame(){try{if(document.fullscreenElement)await document.exitFullscreen();else await $('game').requestFullscreen()}catch{say('Fullscreen is unavailable here. You can keep playing in this window.')}}
+const SIGNALS={WAIT:'✋ WAIT',READY:'👍 READY',JUMP:'↥ JUMP',AGAIN:'↻ AGAIN'};
+function sendSignal(code){if(!started||!S||S.over||!SIGNALS[code]||performance.now()<(S.signalAt||0))return;S.signalAt=performance.now()+700;ev({k:'signal',w:role,code})}
+function showSignal(e){if(!SIGNALS[e.code]||!['E','N'].includes(e.w))return;const local=e.w===role,b=$('teamCall');b.textContent=(local?'You':partnerName)+': '+SIGNALS[e.code];b.classList.toggle('incoming',!local);if(!local)SFX.ping();clearTimeout(signalTimer);signalTimer=setTimeout(()=>{b.textContent='Talk to share clues. These buttons send quick signals.';b.classList.remove('incoming')},4500)}
+function loadCompletion(){let best;try{best=JSON.parse(localStorage.getItem('otherside-best')||'null')}catch{}if(best&&Number.isFinite(best.time)&&best.time>=0){const secs=Math.round(best.time/1000);$('bestRun').textContent='✓ Level 1 complete · Best time '+Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0')+' on this browser';$('levelBadge').textContent='PLAY AGAIN';$('nodeStars').textContent='★ ★ ★'}}
+function saveCompletion(){try{let old;try{old=JSON.parse(localStorage.getItem('otherside-best')||'null')}catch{}if(!old||!Number.isFinite(old.time)||S.time<old.time)localStorage.setItem('otherside-best',JSON.stringify({time:S.time}));loadCompletion()}catch{}}
 /* ===== GAME START ===== */
 function startGame(){
- S=fresh();started=true;$('menu').style.display='none';$('result').style.display='none';$('game').style.display='block';
- S.me.x=role=='E'?60:60;
- $('help').textContent=role=='E'?'Explorer: A/D move · W/Space jump · E interact / pick up / send / tune rune · 1-4 emotes · O = OYEE! (stuck?) · M mute':'Navigator: A/D move · W/Space jump · click radar to ping · E use nearby prism / gravity console · 1-4 emotes · O = OYEE! (stuck?) · M mute';
+ $('failure').hidden=true;$('joinSheet').hidden=true;document.querySelector('.play-layout').classList.remove('expanded','stacked');$('layoutToggle').textContent='Two big views ↔';S=fresh();keys={};clearTimeout(signalTimer);$('teamCall').textContent='Talk to share clues. These buttons send quick signals.';$('teamCall').classList.remove('incoming');started=true;$('menu').style.display='none';$('result').style.display='none';$('game').style.display='block';
+ S.me.x=60;teamLabels();
+ $('help').textContent=role=='E'?'Explorer: A/D move · W/Space jump · E interact / pick up / send / tune rune · 1-4 emotes · Q / O = OYEE! (stuck?) · M mute':'Navigator: A/D move · W/Space jump · click partner radar to ping · E use nearby prism / gravity console · 1-4 emotes · Q / O = OYEE! (stuck?) · M mute';
  $('emotes').innerHTML=['👍','❗','🤔','😡'].map((e,i)=>`<button onclick="emote(${i})">${e}</button>`).join('');
  say(pick(LINES[role=='E'?'startE':'startN']));updateHud();
 }
@@ -99,6 +149,8 @@ function burst(x,y,c,n=24){for(let i=0;i<n;i++)S.parts.push({x,y,vx:(Math.random
 function apply(e){
  if(!S||S.over||e.stage!==S.stage)return;
  switch(e.k){
+ case 'fail':finishFailure(e.time);break;
+ case 'signal':showSignal(e);break;
  case 'chamber':
   if(e.next!==S.stage+1)return;
   S.gates=S.stage;S.stage=e.next;S.gateOpen=false;S.hold=0;S.pl=[];S.parts=[];S.pops=[];S.lastProg=performance.now();S.checkpoint=60;
@@ -125,17 +177,32 @@ function apply(e){
  case 'ping':S.pings++;S.pl.push({x:e.x,y:e.y,t:CFG.pingLife});SFX.ping();break;
  case 'nag':trust(CFG.T.nag);S.nag=1.2;SFX.quack();say(pick(LINES.nag));break;
  case 'oyee':if(e.w==role){say(pick(LINES.oyeeSent));SFX.pop()}else{S.oyee=1.6;S.shake=reduce?0:.5;SFX.oyee();say(pick(LINES.oyee));burst(W/2,H/2,'#ffcf3a',40)}break;
- case 'win':S.gates=3;S.done.win=1;S.over=true;S.ended=1;S.time=e.time;SFX.win();setTimeout(showResult,1400);break;
+ case 'win':S.gates=3;S.done.win=1;S.over=true;S.ended=1;S.time=e.time;saveCompletion();SFX.win();setTimeout(showResult,1400);break;
  }
  {const P={plank:['WHOOSH!',318,350],sw:['CLICK!',685,390],stone:['boop!',500,330],fall:[pick(['AAAAH!','NOOOO!','splat.','oof.'])],nag:['nag nag nag'],oyee:['OYEE!!'],pick:['got it!'],drop:['thunk'],cross:['tada!']}[e.k];if(P)pop(...P)}
  updateHud();
 }
 function updateHud(){
- $('trustf').style.width=S.trust+'%';$('tv').textContent=Math.round(S.trust);
+ $('trustf').style.width=S.trust+'%';$('tv').textContent=Math.round(S.trust);$('hud').classList.toggle('low-trust',S.trust<=20);if(S.lastLayoutStage!==S.stage){S.lastLayoutStage=S.stage;if(S.stage===3){document.querySelector('.play-layout').classList.add('expanded');$('layoutToggle').textContent='Inset view ↙'}}
  $('pg').textContent='GATE '+Math.min(3,S.stage)+' / 3'+(role==='N'&&S.stage===1?' · 📡 '+S.myPings:'');
- $('chips').innerHTML=[1,2,3].map(n=>`<span class="chip ${S.gates>=n?'on':''}">${S.gates>=n?'✓ ':''}Gate ${n}: ${['Bridge & secrets','Prism post office','Gravity duet'][n-1]}</span>`).join('');
- $('mission').textContent=mission();
+ $('chips').innerHTML=[1,2,3].map(n=>`<span class="chip ${S.gates>=n?'on':S.stage===n?'active':''}">${S.gates>=n?'✓ ':''}Gate ${n}: ${['Bridge & secrets','Prism post office','Gravity duet'][n-1]}</span>`).join('');
+ $('mission').textContent=mission();$('mapHint').textContent=role==='N'&&S.stage===1?'Click this radar to mark a safe jump for your partner.':S.stage===2?'Private clue stays private. Ask your partner what they see.':'Watch your partner here. Talk or send a quick signal.';
 }
+addEventListener('keydown',e=>{
+ if($('failure').hidden||e.key!=='Tab')return;
+ const buttons=$('failure').querySelectorAll('button'),first=buttons[0],last=buttons[buttons.length-1];
+ if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+});
+function finishFailure(time){
+ if(!S||S.over)return;
+ S.trust=0;S.failed=true;S.over=true;S.time=Number.isFinite(time)?time:performance.now()-S.t0;keys={};S.me.vx=0;S.me.vy=0;
+ clearInterval(sayTimer);clearTimeout(signalTimer);SFX.wah();
+ $('failureGate').textContent='GATE '+S.stage+' / 3';
+ const seconds=Math.round(S.time/1000);$('failureTime').textContent=Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
+ $('failureTip').textContent=S.stage===1?'Try taking turns: one gives directions, one does the jumping.':S.stage===2?'Say the next rune out loud. Wait for the beam, then store it.':'Change the gravity together. The lifts work better with a little warning.';
+ $('result').style.display='none';$('failure').hidden=false;updateHud();$('retryTogether').focus();
+}
+
 function showResult(){
  const st=STATUS.find(s=>S.trust>=s[0]),i=STATUS.indexOf(st);
  $('rem').textContent=st[2];$('rst').textContent=st[1];$('rq').textContent=pick(LINES['S'+i]);
@@ -148,21 +215,21 @@ function oyee(){if(!S||S.over||S.oyeeCd>0)return;S.oyeeCd=2.5;ev({k:'oyee',w:rol
 function emote(i){if(!S||S.over||S.emoCd>0)return;S.emoCd=CFG.emoteCd;ev({k:'emo',w:role,e:['👍','❗','🤔','😡'][i]})}
 /* ===== INPUT ===== */
 addEventListener('keydown',e=>{
- if(e.target.tagName=='INPUT')return;const k=e.key.toLowerCase();
+ if(['INPUT','TEXTAREA'].includes(e.target.tagName))return;const k=e.key.toLowerCase();if(e.target.tagName==='BUTTON'&&[' ','enter'].includes(k))return;
  if(k=='m'){toggleMute();return}
- if(!S||!started)return;
- if(' wArrowUp'.includes(e.key)||k=='w'){e.preventDefault()}
+ if(!S||!started||S.over)return;
+ if([' ','w','arrowup','arrowleft','arrowright'].includes(k)){e.preventDefault()}
  if(!keys[k]){keys[k]=1;
   if((k=='w'||k==' '||k=='arrowup')&&S.me.gr){S.me.vy=CFG.jump;S.me.gr=false;SFX.jump();dust(4);if(Math.random()<.2)pop('BOING!');if(Math.random()<.1)say(pick(LINES.jump))}
   if('1234'.includes(k)&&k.length==1)emote(+k-1);
-  if(k=='e')interact();if(k=='o')oyee()}
+  if(k=='e')interact();if(k=='q'||k=='o')oyee()}
 });
 addEventListener('keyup',e=>delete keys[e.key.toLowerCase()]);addEventListener('blur',()=>keys={});
-cv.addEventListener('pointerdown',e=>{
- if(role!='N'||!S||S.over||S.stage!==1)return;const r=cv.getBoundingClientRect(),mx=(e.clientX-r.left)*W/r.width,my=(e.clientY-r.top)*H/r.height,s=.48,ix=W-W*s-10,iy=10;
- if(mx<ix||my<iy||mx>ix+W*s||my>iy+H*s)return;
+partnerCv.addEventListener('pointerdown',e=>{
+ if(role!=='N'||!started||!S||S.over||S.stage!==1)return;
+ const r=partnerCv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
  if(S.myPings<1){say(pick(LINES.noping));return}
- S.myPings--;ev({k:'ping',x:(mx-ix)/s,y:(my-iy)/s});
+ S.myPings--;ev({k:'ping',x,y});
 });
 function onFloor(x){return HUMAN.floors.some(f=>x>=f[0]&&x<=f[1])}
 function interact(){
@@ -419,6 +486,11 @@ function drawSock(t){
  g.fillStyle='#1b0d40';rr(sw[0]-4,FY-6,78,8,3);g.fill();const sq=g.createLinearGradient(0,FY-14+pr,0,FY-2);sq.addColorStop(0,on?'#ffe28a':'#ff8a7e');sq.addColorStop(1,on?'#d9a020':'#b0281f');g.fillStyle=sq;rr(sw[0],FY-12+pr,70,10-pr,4);g.fill();g.strokeStyle=OUT;g.lineWidth=2;g.stroke();
  sock(nv.x,nv.y,nv.f,'#45d1c9','#6a2fb8',1,Math.abs(nv.vx||0)>1?2:0,t,nv.vy);
 }
+function renderPartner(t){
+ const previous=g;g=pc;g.setTransform(K,0,0,K,0,0);g.clearRect(0,0,W,H);g.font='16px Fredoka';
+ if(S.stage>1)drawChamber(t,role==='E'?'N':'E',false);else if(role==='N')drawHuman(t,true);else drawSock(t);
+ g=previous;
+}
 function inset(draw,s,full,t){
  const ix=W-W*s-10,iy=10,col=role=='N'?'#45d1c9':'#f2c14e',R=22*s;
  g.save();g.shadowColor='#000a';g.shadowBlur=18;g.fillStyle='#000';rr(ix,iy,W*s,H*s,R);g.fill();g.restore();
@@ -438,7 +510,7 @@ function frame(ts){
  const t=ts/1000,dt=Math.min(.05,(ts-lastT)/1000||0);lastT=ts;
  if(!S.over){carryPlatform();step(dt)}
  // timers + animations
- S.nag-=dt;S.emoCd-=dt;S.shake-=dt;S.oyee=Math.max(0,(S.oyee||0)-dt);S.oyeeCd=Math.max(0,(S.oyeeCd||0)-dt);{const b=$('oyee'),lb=S.oyeeCd>0?'⏳ '+S.oyeeCd.toFixed(1):'🆘 OYEE!';if(b.textContent!=lb){b.textContent=lb;b.disabled=S.oyeeCd>0}}S.glow=S.glow.map(v=>Math.max(0,v-dt));
+ S.nag-=dt;S.emoCd-=dt;S.shake-=dt;S.oyee=Math.max(0,(S.oyee||0)-dt);S.oyeeCd=Math.max(0,(S.oyeeCd||0)-dt);{const b=$('oyee'),lb=S.oyeeCd>0?'⏳ '+S.oyeeCd.toFixed(1):'🆘 OYEE! [Q]';if(b.textContent!=lb){b.textContent=lb;b.disabled=S.oyeeCd>0}}S.glow=S.glow.map(v=>Math.max(0,v-dt));
  if(S.bridgeT>0&&S.bridgeT<1)S.bridgeT=Math.min(1,S.bridgeT+dt/.8);if(S.sw&&S.gateT<1)S.gateT=Math.min(1,S.gateT+dt/1.2);
  S.pops=S.pops||[];S.pops.forEach(q=>{q.t-=dt;q.y-=30*dt});S.pops=S.pops.filter(q=>q.t>0);S.chat=(S.chat??14)-dt;if(S.chat<=0&&!S.over){S.chat=14+Math.random()*10;say(S.stage===1?pick(LINES.chat):pick(['Two dimensions. One shared brain cell. Use it wisely.','If in doubt, talk it out. Or shout OYEE.','Your partner sees a different clue. Ask them!']))}
  S.pl.forEach(q=>q.t-=dt);S.pl=S.pl.filter(q=>q.t>0);S.em.forEach(q=>q.t-=dt);S.em=S.em.filter(q=>q.t>0);
@@ -450,39 +522,21 @@ function frame(ts){
  // draw
  g.setTransform(K,0,0,K,0,0);g.save();if(S.shake>0)g.translate((Math.random()-.5)*10,(Math.random()-.5)*10);
  g.font='16px Fredoka';
- if(S.stage>1){drawChamber(t,role,true);inset((tt)=>drawChamber(tt,role==='E'?'N':'E',false),.28,false,t)}else if(role=='E'){drawHuman(t,false);inset(drawSock,.34,false,t)}else{drawSock(t);inset(drawHuman,.48,true,t)}
+ if(S.stage>1)drawChamber(t,role,true);else if(role==='E')drawHuman(t,false);else drawSock(t);
  S.parts.forEach(p=>{g.globalAlpha=Math.max(0,Math.min(1,p.l/.5));g.fillStyle=p.c;g.beginPath();g.arc(p.x,p.y,1.5+3*p.l,0,7);g.fill()});g.globalAlpha=1;g.drawImage(vig,0,0);
  // own emoji above avatar, partner's big
  S.em.forEach(q=>{g.font=q.w==role?'28px serif':'64px serif';const a=Math.min(1,q.t);g.globalAlpha=a;if(q.w==role)g.fillText(q.e,S.me.x-2,S.me.y-12-(1.6-q.t)*20);else g.fillText(q.e,W/2-30,200-(1.6-q.t)*40);g.globalAlpha=1});
  S.pops.forEach(q=>{g.globalAlpha=Math.min(1,q.t*2);g.font='bold 30px Fredoka';g.lineWidth=5;g.strokeStyle=OUT;g.strokeText(q.txt,q.x-10,q.y-14);g.fillStyle='#ffe35a';g.fillText(q.txt,q.x-10,q.y-14);g.globalAlpha=1});
  g.restore();
  mc.setTransform(K,0,0,K,0,0);mc.imageSmoothingEnabled=true;mc.drawImage(buf,0,0,W,H);
- {const o=obj();mc.font='600 16px Fredoka';const tw=mc.measureText(o).width;mc.fillStyle='rgba(15,8,40,.75)';mc.beginPath();mc.roundRect(8,8,tw+40,30,15);mc.fill();mc.strokeStyle='rgba(255,255,255,.25)';mc.lineWidth=1.5;mc.stroke();mc.fillStyle=role=='E'?'#ff6a5e':'#45d1c9';mc.beginPath();mc.arc(24,23,5,0,7);mc.fill();mc.fillStyle='#f6ead2';mc.fillText(o,36,29)}
+ renderPartner(t);
+ $('objective').textContent=obj();
+ const secs=Math.round((S.over?S.time:performance.now()-S.t0)/1000);$('elapsed').textContent=Math.floor(secs/60)+':'+String(secs%60).padStart(2,'0');
  if(S.oyee>0){const k=S.oyee/1.6,e=1-k;mc.save();mc.strokeStyle=`rgba(255,207,58,${k})`;mc.lineWidth=16;mc.strokeRect(0,0,W,H);for(let i=0;i<3;i++){mc.strokeStyle=`rgba(255,122,26,${k*(1-((e*2+i/3)%1))})`;mc.lineWidth=6;mc.beginPath();mc.arc(W/2,H/2,40+((e*2+i/3)%1)*420,0,7);mc.stroke()}
   mc.translate(W/2,H/2-10);mc.rotate(-.08+Math.sin(t*40)*.03*k);const sc=1+Math.sin(Math.min(1,e*5)*Math.PI)*.35;mc.scale(sc,sc);mc.globalAlpha=Math.min(1,k*3);mc.textAlign='center';mc.font='bold 130px Fredoka';mc.lineJoin='round';mc.lineWidth=18;mc.strokeStyle=OUT;mc.strokeText('OYEE!',0,30);const q=mc.createLinearGradient(0,-70,0,40);q.addColorStop(0,'#fff3a0');q.addColorStop(1,'#ff9a1a');mc.fillStyle=q;mc.fillText('OYEE!',0,30);mc.font='22px Special Elite,monospace';mc.lineWidth=6;mc.strokeText('🆘 your partner is STUCK',0,72);mc.fillStyle='#fff';mc.fillText('🆘 your partner is STUCK',0,72);mc.restore()}
  if(S.nag>0){mc.fillStyle='#e8453c';mc.strokeStyle='#fff';mc.lineWidth=4;mc.font='bold 56px Fredoka';mc.strokeText('HURRY UP',W/2-150,110);mc.fillText('HURRY UP',W/2-150,110)}
 }
 requestAnimationFrame(frame);
 /* ===== BOOT ===== */
-$('room').value=(new URLSearchParams(location.search).get('room')||Math.random().toString(36).slice(2,6)).toUpperCase().slice(0,4);
-
-
-// Public, read-only context accessor used by the separate AI hint UI.
-window.getAiGameContext = function () {
-  if (!S || !started) return null;
-  return {
-    gate: S.stage,
-    role: role === 'E' ? 'Explorer' : 'Navigator',
-    gatesCompleted: S.gates || 0,
-    gateOpen: Boolean(S.gateOpen),
-    trust: Math.round(S.trust || 0),
-    falls: S.falls ? { explorer: S.falls.E || 0, navigator: S.falls.N || 0 } : {},
-    puzzleState: {
-      litRunes: S.lit || 0,
-      beamSet: S.beam >= 0,
-      anchorsActivated: S.anchors ? Object.keys(S.anchors).length : 0,
-      gravityPhase: S.phase || 0,
-      syncPercent: Math.round(((S.hold || 0) / 1.6) * 100)
-    }
-  };
-};
+$('playerName').value=recall('otherside-name');loadCompletion();
+$('room').value=(new URLSearchParams(location.search).get('room')||Math.random().toString(36).slice(2,6)).toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);

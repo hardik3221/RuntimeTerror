@@ -5,7 +5,7 @@ One level. Two players. Three connected cooperative chambers.
 ## Quick start (same computer)
 
 1. Extract the ZIP first.
-2. Open `public/index.html` in two tabs of the same browser.
+2. Open `public/index.html` in two tabs of the same browser. Click the big Level 1 button on the cartoon map in each tab, then enter your names.
 3. Enter the same four-letter room code in both tabs.
 4. Choose Explorer in one tab and Navigator in the other.
 
@@ -29,7 +29,7 @@ Open `http://localhost:3000` on the host, and `http://<host-LAN-IP>:3000` on ano
 - **A/D or left/right arrows:** move
 - **W, Space or up arrow:** jump
 - **E:** interact with a nearby object or console
-- **O / OYEE button:** send a loud help call to your partner
+- **Q (or O) / OYEE button:** send a loud help call to your partner
 - **1–4:** emotes
 - **M:** mute
 - **Navigator, Gate 1:** click the radar to ping hidden platforms
@@ -60,23 +60,22 @@ After both anchors charge, each player stands on their own golden SYNC pad. Hold
 - Existing OYEE effects, emotes, trust system and synthesized sounds retained.
 - Play again resets all three chambers for both players.
 
-No build step. No game asset downloads required. Google Fonts is optional; the game falls back to system fonts when offline. LAN play needs the Node relay; two local tabs use BroadcastChannel.
+No build step. No game asset downloads required. The rounded fonts are bundled locally and include their license files; no font downloads are needed. LAN play needs the Node relay; two local tabs use BroadcastChannel.
 
+## Interface update
 
-## Team work split (Frontend / Backend / AI)
+Start on the illustrated level map, click Level 1, enter your name and choose a role. Level 1 contains all three existing gates. The other two numbered islands are future level concepts, locked and marked Coming Soon.
 
-- **Frontend:** `public/index.html`, `public/style.css`, `public/js/game.js`, `public/js/ai-ui.js`
-- **Backend:** `server.js` (static files, WebSocket multiplayer relay, `POST /api/hint`)
-- **AI:** `ai/hint-service.js` (prompt, provider call, fallback hints)
+Play starts with one large world and a large partner inset in the upper-right, matching the reference layout for both roles. Use **Two big views** for equally sized separate maps. The gravity chamber opens these larger views automatically so the inset cannot hide high platforms. Navigator clicks **that radar panel** to send Gate 1 pings. It uses the same map and hidden-platform view as before. The main game view is no longer covered by the radar.
 
-The original inline CSS and JavaScript have been moved to separate files without intentionally changing the game logic. The AI hint button calls `POST /api/hint`. If no AI provider settings are configured, the server returns gate- and role-specific fallback hints, so the feature remains usable offline.
+Wait / Ready / Jump / Again send optional quick messages. Speaking to your partner is still the main way to exchange clues; no microphone permissions or built-in voice chat are required. The fullscreen button is in the top toolbar. Returning to Adventures leaves the room for both players and resets the active run.
 
-### Optional AI provider configuration
+The interface adapts to smaller screens, but gameplay still needs a physical keyboard. See `PROTOTYPE_NOTES.md` for suggested next features and a short pitch.
 
-The AI service supports an OpenAI-compatible Chat Completions endpoint through environment variables (Node.js 18+ is required for built-in `fetch`):
+## Cartoon map edition
 
-- `AI_API_URL` — full chat completions endpoint URL
-- `AI_API_KEY` — secret API key (server-side only)
-- `AI_MODEL` — model name supported by that endpoint
+The main menu is now an original illustrated world with floating islands, a dotted trail, numbered level buttons, wooden signs, goofy socks, and locked future levels. The playable maps, characters, three puzzles and sound effects remain the same. Press **Q** to send OYEE; the original **O** shortcut remains supported.
 
-Do not commit secrets. Set these variables in your deployment platform's environment settings. The app works without them using fallback hints.
+## Trust and failure
+
+When team trust reaches zero, the run stops for both players and a Friendship Out of Order screen appears. Either player can choose **Try again, together!** to restart the entire level for both, or **Level map** to leave the room and return to the approved level screen. Failed runs do not earn completion stars or a best-time record. Q / O still send OYEE while playing.
