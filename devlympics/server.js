@@ -1,6 +1,6 @@
 // OTHER SIDE relay server: serves /public and relays JSON between max 2 clients per room.
 const http=require('http'),fs=require('fs'),path=require('path'),{WebSocketServer}=require('ws');
-const PUB=path.join(__dirname,'public'),MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css'};
+const PUB=path.join(__dirname,'public'),MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.woff2':'font/woff2'};
 const srv=http.createServer((req,res)=>{
   let p=req.url.split('?')[0];if(p==='/')p='/index.html';
   const f=path.join(PUB,path.normalize(p));
