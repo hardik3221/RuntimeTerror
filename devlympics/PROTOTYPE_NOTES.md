@@ -1,4 +1,12 @@
-# Prototype direction
+# I Need YOU / Colourful cartoon polish
+
+Restores the earlier cartoon edition, with shading and small layout improvements. Retains all menu navigation, world previews and current playable content.
+
+# Latest UI pass: Three-world adventure menus
+
+A new title screen and world picker sit before the existing player setup. There are three illustrated world maps, each with three level stops; future worlds are inspectable previews. The third level is marked hardest and displays the next-world unlock goal. Only the existing World 1, Level 1 is playable. Level design and actual future-level unlock progression remain for a later pass.
+
+# Earlier prototype direction
 
 ## What this update adds
 

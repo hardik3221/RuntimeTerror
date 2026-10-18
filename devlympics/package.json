@@ -1,10 +1,14 @@
 {
-  "name": "other-side",
-  "version": "1.4.0",
+  "name": "i-need-you",
+  "version": "1.7.2",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
